@@ -1496,8 +1496,89 @@ userRouter.post('/notifications/delete', async (req, res) => {
         res.status(500).json({ message: "Erro ao deletar notificações.", error: error.message });
     }
 });
+// server (7).js
+
+// ... (imports, modelos, outras rotas do userRouter) ...
+
+// NOVA ROTA: 9.14. Ativar Plano com Saldo da Conta
+userRouter.post('/activate-plan-with-balance', async (req, res) => {
+    const { planId } = req.body;
+    const userId = req.user.id;
+
+    if (!planId) {
+        return res.status(400).json({ message: "ID do plano é obrigatório." });
+    }
+
+    try {
+        const user = await User.findById(userId);
+        const planToActivate = await Plan.findById(planId);
+
+        if (!user) {
+            return res.status(404).json({ message: "Usuário não encontrado." });
+        }
+        if (!planToActivate || !planToActivate.isActive) {
+            return res.status(404).json({ message: "Plano não encontrado ou está inativo." });
+        }
+
+        // Verifica se o usuário já tem este plano ativo (opcional, mas bom para evitar duplicidade acidental)
+        const alreadyActive = user.activeInvestments.some(inv => inv.planId.equals(planToActivate._id));
+        if (alreadyActive) {
+            return res.status(400).json({ message: `Você já possui o plano "${planToActivate.name}" ativo.` });
+        }
+
+        const investmentAmount = planToActivate.investmentAmount;
+
+        if ((user.balance.MT || 0) < investmentAmount) {
+            return res.status(400).json({ 
+                message: `Saldo insuficiente (${formatCurrency(user.balance.MT || 0)} MT) para ativar o plano "${planToActivate.name}" (${formatCurrency(investmentAmount)} MT). Por favor, realize um depósito.`,
+                redirectToDeposit: true // Sinaliza ao frontend para sugerir depósito
+            });
+        }
+
+        // Debita o valor do plano do saldo do usuário
+        user.balance.MT -= investmentAmount;
+
+        // Cria o novo investimento ativo
+        const newInvestment = {
+            planId: planToActivate._id,
+            planName: planToActivate.name,
+            investedAmount: investmentAmount,
+            dailyProfitRate: planToActivate.dailyProfitRate,
+            dailyProfitAmount: planToActivate.dailyProfitAmount,
+            claimValue: planToActivate.claimValue,
+            claimsMadeToday: 0,
+            activatedAt: new Date(),
+        };
+        user.activeInvestments.push(newInvestment);
+        
+        // Lógica de primeiro depósito: Ativar um plano com saldo existente GERALMENTE NÃO CONTA como primeiro depósito para bônus.
+        // Se contasse, você adicionaria a lógica aqui:
+        // if (!user.firstDepositMade) {
+        //     user.firstDepositMade = true;
+        //     // ... lógica de bônus de referência para o padrinho ...
+        // }
+
+        await user.save();
+
+        res.status(200).json({ 
+            message: `Plano "${planToActivate.name}" ativado com sucesso usando seu saldo!`,
+            user: { // Retorna dados atualizados do usuário, se necessário para o frontend
+                balance: user.balance,
+                activeInvestments: user.activeInvestments 
+            }
+        });
+
+    } catch (error) {
+        console.error("Erro ao ativar plano com saldo:", error);
+        res.status(500).json({ message: "Erro interno ao tentar ativar o plano." });
+    }
+});
+
+
+// ... (o resto das rotas do userRouter e do arquivo) ...
 
 app.use('/api/user', userRouter);
+
 // -----------------------------------------------------------------------------
 // 10. ROTAS DO ADMINISTRADOR
 // -----------------------------------------------------------------------------
