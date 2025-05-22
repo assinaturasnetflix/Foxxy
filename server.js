@@ -575,6 +575,8 @@ cron.schedule('*/5 * * * *', async () => {
                 if (!post.publishedAt) { // Segurança, embora deva ser definido no agendamento
                     post.publishedAt = now;
        // server.js
+// 
+// ... (r// server.js
 // ...
 // -----------------------------------------------------------------------------
 // 6. CRON JOBS
@@ -582,47 +584,78 @@ cron.schedule('*/5 * * * *', async () => {
 
 // Roda todos os dias à meia-noite (00:00) de Maputo para resetar claims diários
 cron.schedule('0 0 * * *', async () => {
-    console.log('Executando cron job: Resetando claims diários para o fuso de Maputo...'); //
+    console.log('CRON: Iniciando reset de claims diários para o fuso de Maputo...');
     try {
         const usersWithActiveInvestments = await User.find({
-            'activeInvestments.0': { $exists: true } // Pelo menos um investimento ativo //
+            'activeInvestments.0': { $exists: true } // Encontra usuários com pelo menos um investimento ativo
         });
 
-        let resetCount = 0;
+        let usersResetCount = 0; // Contador para usuários que tiveram claims resetados
+
         for (const user of usersWithActiveInvestments) {
             let userModified = false;
             for (const investment of user.activeInvestments) {
-                if (investment.claimsMadeToday > 0) { //
-                    // Se o cron está rodando, é um novo dia no fuso horário de Maputo.
-                    // Resetamos os claims feitos no "dia anterior".
-                    investment.claimsMadeToday = 0; //
-                    // Opcional: Limpar a lastClaimDate para evitar confusões futuras, 
-                    // embora não seja estritamente necessário para ESTA lógica de reset.
-                    // investment.lastClaimDate = undefined; 
+                if (investment.claimsMadeToday > 0) {
+                    investment.claimsMadeToday = 0;
+                    // Opcional: investment.lastClaimDate = undefined; // Se quiser limpar explicitamente
                     userModified = true;
                 }
             }
             if (userModified) {
-                await user.save(); //
-                resetCount++;
-                // console.log(`Claims resetados para o usuário ${user.email} no início do dia de Maputo.`); // Log individual pode ser verboso
+                await user.save();
+                usersResetCount++;
+                // console.log(`CRON: Claims resetados para o usuário ${user.email}`); // Log individual pode ser muito verboso
             }
         }
-        if (resetCount > 0) {
-            console.log(`Cron job: Claims diários resetados para ${resetCount} usuário(s) (Maputo).`);
+
+        if (usersResetCount > 0) {
+            console.log(`CRON: Claims diários foram resetados para ${usersResetCount} usuário(s) no fuso de Maputo.`);
         } else {
-            console.log('Cron job: Nenhum claim precisou ser resetado (Maputo).');
+            console.log('CRON: Nenhum usuário precisou ter seus claims diários resetados no fuso de Maputo.');
         }
-        console.log('Cron job: Reset de claims diários (Maputo) concluído.'); //
+        console.log('CRON: Processo de reset de claims diários (Maputo) concluído.');
+
     } catch (error) {
-        console.error('Erro no cron job de reset de claims (Maputo):', error); //
+        console.error('CRON ERROR: Erro no job de reset de claims diários (Maputo):', error);
     }
 }, {
     scheduled: true,
-    timezone: "Africa/Maputo" // Garante que o job rode à meia-noite no fuso de Maputo //
+    timezone: "Africa/Maputo"
 });
 
-// ... (resto do código, incluindo o cron job de posts agendados)         }
+// Cron Job: Publicar Posts Agendados (EXISTENTE - MANTIDO COMO ESTÁ)
+// Roda a cada 5 minutos (ajuste conforme necessário)
+cron.schedule('*/5 * * * *', async () => {
+    console.log('CRON: Verificando posts de blog agendados...');
+    try {
+        const now = new Date();
+        const postsToPublish = await BlogPost.find({
+            status: 'scheduled',
+            publishedAt: { $lte: now }
+        });
+
+        if (postsToPublish.length > 0) {
+            for (const post of postsToPublish) {
+                post.status = 'published';
+                if (!post.publishedAt) { 
+                    post.publishedAt = now;
+                }
+                post.updatedAt = now;
+                await post.save();
+                console.log(`CRON: Post do blog "${post.title}" (ID: ${post._id}) publicado via agendamento.`);
+            }
+            console.log(`CRON: ${postsToPublish.length} post(s) do blog foram publicados.`);
+        } else {
+            // console.log('CRON: Nenhum post de blog agendado para publicação no momento.');
+        }
+    } catch (error) {
+        console.error('CRON ERROR: Erro no job de publicação de posts agendados:', error);
+    }
+}, {
+    scheduled: true,
+    timezone: "Africa/Maputo" // Consistência de fuso horário
+});
+// ... (resto do seu arquivo server.js)esto do código, incluindo o cron job de posts agendados)         }
                 post.updatedAt = now;
                 await post.save();
                 console.log(`Post do blog "${post.title}" (ID: ${post._id}) publicado via agendamento.`);
