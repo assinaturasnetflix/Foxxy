@@ -555,41 +555,7 @@ async function getSiteSettings() {
 // -----------------------------------------------------------------------------
 
 // Roda todos os dias à meia-noite (00:00) para resetar claims diários
-cron.schedule('0 0 * * *', async () => {
-    console.log('Executando cron job: Resetando claims diários...'); //
-    try {
-        const today = new Date();
-        today.setHours(0, 0, 0, 0); // Início do dia atual //
 
-        const usersWithActiveInvestments = await User.find({
-            'activeInvestments.0': { $exists: true } // Pelo menos um investimento ativo //
-        });
-
-        for (const user of usersWithActiveInvestments) {
-            let userModified = false;
-            for (const investment of user.activeInvestments) {
-                // Verifica se o último claim não foi hoje e se há claims feitos
-                if (investment.claimsMadeToday > 0) {
-                    // Se lastClaimDate não está definido ou é anterior a hoje, reseta
-                    if (!investment.lastClaimDate || investment.lastClaimDate < today) {
-                        investment.claimsMadeToday = 0; //
-                        userModified = true;
-                    }
-                }
-            }
-            if (userModified) {
-                await user.save(); //
-                console.log(`Claims resetados para o usuário ${user.email}`); //
-            }
-        }
-        console.log('Cron job: Reset de claims diários concluído.'); //
-    } catch (error) {
-        console.error('Erro no cron job de reset de claims:', error); //
-    }
-}, {
-    scheduled: true,
-    timezone: "Africa/Maputo" // Ajuste para o fuso horário desejado //
-});
 
 // Cron Job: Publicar Posts Agendados
 // Roda a cada 5 minutos (ajuste conforme necessário)
@@ -608,7 +574,55 @@ cron.schedule('*/5 * * * *', async () => {
                 post.status = 'published';
                 if (!post.publishedAt) { // Segurança, embora deva ser definido no agendamento
                     post.publishedAt = now;
+       // server.js
+// ...
+// -----------------------------------------------------------------------------
+// 6. CRON JOBS
+// -----------------------------------------------------------------------------
+
+// Roda todos os dias à meia-noite (00:00) de Maputo para resetar claims diários
+cron.schedule('0 0 * * *', async () => {
+    console.log('Executando cron job: Resetando claims diários para o fuso de Maputo...'); //
+    try {
+        const usersWithActiveInvestments = await User.find({
+            'activeInvestments.0': { $exists: true } // Pelo menos um investimento ativo //
+        });
+
+        let resetCount = 0;
+        for (const user of usersWithActiveInvestments) {
+            let userModified = false;
+            for (const investment of user.activeInvestments) {
+                if (investment.claimsMadeToday > 0) { //
+                    // Se o cron está rodando, é um novo dia no fuso horário de Maputo.
+                    // Resetamos os claims feitos no "dia anterior".
+                    investment.claimsMadeToday = 0; //
+                    // Opcional: Limpar a lastClaimDate para evitar confusões futuras, 
+                    // embora não seja estritamente necessário para ESTA lógica de reset.
+                    // investment.lastClaimDate = undefined; 
+                    userModified = true;
                 }
+            }
+            if (userModified) {
+                await user.save(); //
+                resetCount++;
+                // console.log(`Claims resetados para o usuário ${user.email} no início do dia de Maputo.`); // Log individual pode ser verboso
+            }
+        }
+        if (resetCount > 0) {
+            console.log(`Cron job: Claims diários resetados para ${resetCount} usuário(s) (Maputo).`);
+        } else {
+            console.log('Cron job: Nenhum claim precisou ser resetado (Maputo).');
+        }
+        console.log('Cron job: Reset de claims diários (Maputo) concluído.'); //
+    } catch (error) {
+        console.error('Erro no cron job de reset de claims (Maputo):', error); //
+    }
+}, {
+    scheduled: true,
+    timezone: "Africa/Maputo" // Garante que o job rode à meia-noite no fuso de Maputo //
+});
+
+// ... (resto do código, incluindo o cron job de posts agendados)         }
                 post.updatedAt = now;
                 await post.save();
                 console.log(`Post do blog "${post.title}" (ID: ${post._id}) publicado via agendamento.`);
