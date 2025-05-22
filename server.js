@@ -455,3 +455,30 @@ blogPostSchema.pre('validate', function(next) {
 blogPostSchema.pre('save', function(next) { this.updatedAt = Date.now(); next(); });
 // blogPostSchema.index({ title: 'text', content: 'text', seoKeywords: 'text' }); // Considerar para busca textual avançada
 const BlogPost = mongoose.model('BlogPost', blogPostSchema);
+// server.js
+// ... (continuação da Parte 4: MODELOS (SCHEMAS) DO MONGODB - que acabamos de passar)
+
+// -----------------------------------------------------------------------------
+// CONEXÃO COM O MONGODB (Movida para após a definição dos modelos)
+// -----------------------------------------------------------------------------
+mongoose.connect(MONGO_URI, {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+    // useCreateIndex: true, // Removido, não mais necessário nas versões recentes do Mongoose/MongoDB driver
+    // useFindAndModify: false, // Removido, não mais necessário
+})
+.then(async () => { 
+    console.log('MongoDB conectado com sucesso!'); 
+    
+    // Chama as funções de inicialização APÓS os modelos serem definidos e o DB conectado.
+    // É importante que AdminSetting e User estejam definidos antes dessas chamadas.
+    await createInitialAdmin(); 
+    await initializeDefaultSettings(); // << ADIÇÃO DA CHAMADA DA NOVA FUNÇÃO AQUI
+    
+    // A função getSiteSettings() é chamada dentro de initializeDefaultSettings
+    // para popular o cache inicial com todas as configurações, incluindo as novas.
+    // Não é estritamente necessário chamá-la novamente aqui de forma explícita
+    // a menos que queira garantir uma nova carga por algum motivo específico.
+    // await getSiteSettings(); 
+})
+.catch(err => console.error('Erro ao conectar ao MongoDB:', err));
