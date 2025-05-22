@@ -1571,9 +1571,7 @@ userRouter.post('/activate-plan-with-balance', async (req, res) => {
     } catch (error) {
         console.error("Erro ao ativar plano com saldo:", error);
         res.status(500).json({ message: "Erro interno ao tentar ativar o plano." });
-    }
-});
-
+        
 
 // ... (o resto das rotas do userRouter e do arquivo) ...
 
