@@ -10,6 +10,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const cors = require('cors');
 const cron = require('node-cron');
+const crypto = require('crypto'); // Adicionado para gerar tokens de reset
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -215,7 +216,9 @@ const userSchema = new mongoose.Schema({
     isAdmin: { type: Boolean, default: false },
     firstDepositMade: { type: Boolean, default: false },
     createdAt: { type: Date, default: Date.now },
-    lastLoginAt: { type: Date }
+    lastLoginAt: { type: Date },
+    resetPasswordToken: { type: String }, // NOVO CAMPO
+    resetPasswordExpires: { type: Date }    // NOVO CAMPO
 });
 
 userSchema.pre('save', async function(next) {
@@ -311,7 +314,7 @@ userNotificationStatusSchema.index({ userId: 1, isRead: 1, isDeleted: 1 });
 const UserNotificationStatus = mongoose.model('UserNotificationStatus', userNotificationStatusSchema);
 
 // 4.9. Schema de Configurações do Admin (AdminSetting)
-const paymentMethodSchema = new mongoose.Schema({
+const paymentMethodSchema = new mongoose.Schema({ // Este schema parece não estar sendo usado diretamente em AdminSetting, mas está definido.
     name: { type: String, required: true },
     details: { type: String, required: true },
     instructions: { type: String },
@@ -715,6 +718,7 @@ authRouter.post('/login', async (req, res) => {
 
 // 7.3. Rota para Informação de Recuperação de Senha (POST /api/auth/request-password-recovery)
 authRouter.post('/request-password-recovery', (req, res) => {
+    // Esta rota permanece como uma instrução manual, pois a nova funcionalidade é assistida pelo admin.
     const { email } = req.body;
     if (!email) {
         return res.status(400).json({ message: "Email é obrigatório." });
@@ -724,6 +728,39 @@ authRouter.post('/request-password-recovery', (req, res) => {
         message: "Para recuperar sua senha, por favor, entre em contato com o administrador da plataforma e forneça seu email e a resposta para sua pergunta de segurança. O administrador irá guiá-lo no processo."
     });
 });
+
+// 7.4. Rota para Redefinir Senha com Token (NOVA ROTA)
+authRouter.post('/reset-password/:token', async (req, res) => {
+    const { token } = req.params;
+    const { password } = req.body;
+
+    if (!password || password.length < 6) {
+        return res.status(400).json({ message: 'A nova senha é obrigatória e deve ter pelo menos 6 caracteres.' });
+    }
+
+    try {
+        const user = await User.findOne({
+            resetPasswordToken: token,
+            resetPasswordExpires: { $gt: Date.now() } // Verifica se o token não expirou
+        });
+
+        if (!user) {
+            return res.status(400).json({ message: 'Token de redefinição de senha inválido ou expirado.' });
+        }
+
+        user.password = password; // O hook pre-save irá hashear
+        user.resetPasswordToken = undefined;
+        user.resetPasswordExpires = undefined;
+        await user.save();
+
+        res.json({ message: 'Senha redefinida com sucesso. Você já pode fazer login com sua nova senha.' });
+
+    } catch (error) {
+        console.error("Erro ao redefinir senha:", error);
+        res.status(500).json({ message: 'Erro interno do servidor ao tentar redefinir a senha.' });
+    }
+});
+
 
 app.use('/api/auth', authRouter);
 // -----------------------------------------------------------------------------
@@ -956,7 +993,7 @@ userRouter.use(authenticateToken);
 userRouter.get('/dashboard', async (req, res) => {
     try {
         const user = await User.findById(req.user.id)
-            .select('-password -securityAnswer -securityQuestion')
+            .select('-password -securityAnswer -securityQuestion -resetPasswordToken -resetPasswordExpires') // Exclui campos sensíveis
             .populate('activeInvestments.planId', 'name claimsPerDay')
             .populate('referredBy', 'name email');
 
@@ -1014,7 +1051,6 @@ userRouter.get('/dashboard', async (req, res) => {
             });
         }
         
-        // Pega a configuração 'allowedClaimCurrencies' para enviar ao frontend
         const siteConfig = await getSiteSettings();
         const allowedClaimCurrencies = siteConfig.allowedClaimCurrencies || ["MT", "BTC", "ETH", "USDT"];
 
@@ -1039,7 +1075,7 @@ userRouter.get('/dashboard', async (req, res) => {
             unreadNotificationCount: unreadNotificationCount,
             firstDepositMade: user.firstDepositMade,
             isBlocked: user.isBlocked,
-            allowedClaimCurrencies: allowedClaimCurrencies // Adicionado para o frontend
+            allowedClaimCurrencies: allowedClaimCurrencies 
         });
 
     } catch (error) {
@@ -1442,7 +1478,7 @@ userRouter.post('/notifications/mark-as-read', async (req, res) => {
         if (!markAllAsRead) updateQuery._id = { $in: notificationStatusIds };
 
         const result = await UserNotificationStatus.updateMany(updateQuery, { $set: { isRead: true, readAt: new Date() } });
-        const modifiedCount = result.modifiedCount || result.nModified || 0; // Compatibilidade com versões do Mongoose
+        const modifiedCount = result.modifiedCount || result.nModified || 0; 
 
         if (modifiedCount === 0 && !markAllAsRead && notificationStatusIds && notificationStatusIds.length > 0) {
             const count = await UserNotificationStatus.countDocuments({ userId: userId, _id: { $in: notificationStatusIds }});
@@ -1804,7 +1840,7 @@ adminRouter.get('/users', async (req, res) => {
 
     try {
         const users = await User.find(query)
-            .select('-password -securityAnswer -securityQuestion -claimHistory')
+            .select('-password -securityAnswer -securityQuestion -claimHistory -resetPasswordToken -resetPasswordExpires') // Exclui campos sensíveis
             .populate('referredBy', 'name email')
             .sort({ createdAt: -1 })
             .skip((parseInt(page) - 1) * parseInt(limit))
@@ -1826,7 +1862,7 @@ adminRouter.get('/users', async (req, res) => {
 adminRouter.get('/users/:userId', async (req, res) => {
     try {
         const user = await User.findById(req.params.userId)
-            .select('-password -securityAnswer')
+            .select('-password -securityAnswer -resetPasswordToken -resetPasswordExpires') // Exclui campos sensíveis, mas mantém securityQuestion para admin
             .populate('activeInvestments.planId', 'name investmentAmount')
             .populate({ path: 'referredBy', select: 'name email' })
             .populate({ path: 'claimHistory', options: { sort: { claimedAt: -1 }, limit: 20 } });
@@ -1898,6 +1934,7 @@ adminRouter.post('/users/:userId/assign-plan', async (req, res) => {
     }
 });
 
+// Rota MODIFICADA para gerar link de reset de senha
 adminRouter.post('/users/:userId/verify-security-answer', async (req, res) => {
     const { userId } = req.params;
     const { answer } = req.body;
@@ -1907,7 +1944,7 @@ adminRouter.post('/users/:userId/verify-security-answer', async (req, res) => {
     }
 
     try {
-        const user = await User.findById(userId).select('+securityAnswer +securityQuestion');
+        const user = await User.findById(userId).select('+securityAnswer +securityQuestion'); // Seleciona campos necessários
         if (!user) {
             return res.status(404).json({ message: "Usuário não encontrado." });
         }
@@ -1920,16 +1957,29 @@ adminRouter.post('/users/:userId/verify-security-answer', async (req, res) => {
             return res.status(400).json({ message: "Resposta de segurança incorreta." });
         }
 
+        // Gerar token de reset
+        const resetToken = crypto.randomBytes(32).toString('hex');
+        user.resetPasswordToken = resetToken;
+        user.resetPasswordExpires = Date.now() + 3600000; // Token expira em 1 hora
+
+        await user.save();
+
+        // Construir URL de reset
+        // Assumindo que a página de reset no frontend será algo como 'reset-password.html'
+        const resetUrl = `${FRONTEND_URL}/reset-password.html?token=${resetToken}`;
+
         res.json({
-            message: "Resposta de segurança verificada com sucesso.",
-            securityQuestion: user.securityQuestion
+            message: "Resposta de segurança verificada com sucesso. Envie o seguinte link para o usuário redefinir a senha:",
+            resetUrl: resetUrl, // Envia a URL para o admin
+            securityQuestion: user.securityQuestion // Mantém a pergunta para referência do admin
         });
 
     } catch (error) {
-        console.error("Admin - Erro ao verificar resposta de segurança:", error);
-        res.status(500).json({ message: "Erro ao verificar resposta de segurança." });
+        console.error("Admin - Erro ao verificar resposta de segurança e gerar link:", error);
+        res.status(500).json({ message: "Erro ao verificar resposta de segurança e gerar link de reset." });
     }
 });
+
 
 adminRouter.patch('/users/:userId/adjust-balance', async (req, res) => {
     const { userId } = req.params;
@@ -2636,14 +2686,14 @@ blogPostRouter.post('/', async (req, res) => {
         
         let finalPublishedAt = publishedAt;
         if (status === 'published' && !publishedAt) finalPublishedAt = new Date();
-        else if (status !== 'scheduled' && status !== 'published') finalPublishedAt = null; // Limpa se não for publicado ou agendado
+        else if (status !== 'scheduled' && status !== 'published') finalPublishedAt = null;
 
 
         const newPost = new BlogPost({ 
             title, slug: postSlug, content, excerpt, coverImage, 
             category: category || null, 
             tags: tags || [], 
-            author: req.user.id, // O admin logado é o autor
+            author: req.user.id, 
             status, isFeatured, publishedAt: finalPublishedAt, 
             seoTitle, seoDescription, seoKeywords 
         });
@@ -2660,20 +2710,20 @@ blogPostRouter.get('/', async (req, res) => {
     const query = {};
     if (search) { query.$or = [ { title: { $regex: search, $options: 'i' } }, { content: { $regex: search, $options: 'i' } }, { excerpt: { $regex: search, $options: 'i' } } ]; }
     if (status) query.status = status;
-    if (category) query.category = category; // Assume que 'category' é um ID
-    if (tag) query.tags = tag; // Assume que 'tag' é um ID
+    if (category) query.category = category; 
+    if (tag) query.tags = tag; 
     if (author) query.author = author;
     try {
         const posts = await BlogPost.find(query)
             .populate('category', 'name slug')
             .populate('tags', 'name slug')
-            .populate('author', 'name email') // Popula nome e email do autor
+            .populate('author', 'name email') 
             .sort({ [sortBy]: sortOrder === 'asc' ? 1 : -1 })
             .skip((parseInt(page) - 1) * parseInt(limit))
             .limit(parseInt(limit));
         const totalPosts = await BlogPost.countDocuments(query);
         res.json({ 
-            posts: posts.map(p => ({ ...p.toObject(), authorName: p.author ? p.author.name : 'Desconhecido' })), // Adiciona authorName
+            posts: posts.map(p => ({ ...p.toObject(), authorName: p.author ? p.author.name : 'Desconhecido' })), 
             totalPages: Math.ceil(totalPosts / limit), 
             currentPage: parseInt(page), 
             totalCount: totalPosts 
@@ -2686,8 +2736,8 @@ blogPostRouter.get('/', async (req, res) => {
 blogPostRouter.get('/:postId', async (req, res) => {
     try {
         const post = await BlogPost.findById(req.params.postId)
-            .populate('category', 'name slug _id') // Garante que _id é populado para o select
-            .populate('tags', 'name slug _id') // Garante que _id é populado para o multi-select
+            .populate('category', 'name slug _id') 
+            .populate('tags', 'name slug _id') 
             .populate('author', 'name email');
         if (!post) return res.status(404).json({ message: "Post não encontrado." });
         res.json(post);
@@ -2711,23 +2761,21 @@ blogPostRouter.put('/:postId', async (req, res) => {
         if (existingPostWithSlug) return res.status(409).json({ message: "Outro post com este slug já existe." });
         
         let finalPublishedAt = publishedAt;
-        const currentPost = await BlogPost.findById(postId); // Pega o post atual para checar status anterior
+        const currentPost = await BlogPost.findById(postId); 
 
         if (status === 'published') {
-            if (!currentPost.publishedAt || currentPost.status !== 'published') { // Se não estava publicado ou não tinha data
+            if (!currentPost.publishedAt || currentPost.status !== 'published') { 
                 finalPublishedAt = new Date();
             } else {
-                finalPublishedAt = currentPost.publishedAt; // Mantém a data original de publicação
+                finalPublishedAt = currentPost.publishedAt; 
             }
         } else if (status === 'scheduled') {
             if (new Date(publishedAt) <= new Date() && (!currentPost.publishedAt || new Date(publishedAt).toISOString() !== new Date(currentPost.publishedAt).toISOString() )) {
-                 // Permite salvar se a data agendada for a mesma que já está, mesmo que seja no passado (caso o cron ainda não rodou)
-                // Mas se for uma *nova* data agendada, ela deve ser no futuro.
                  const isSameSheduledDate = currentPost.publishedAt && new Date(publishedAt).toISOString() === new Date(currentPost.publishedAt).toISOString();
                  if(!isSameSheduledDate) return res.status(400).json({ message: "Data de publicação para agendamento deve ser no futuro." });
             }
-             finalPublishedAt = new Date(publishedAt); // Converte para objeto Date
-        } else { // draft, archived
+             finalPublishedAt = new Date(publishedAt); 
+        } else { 
             finalPublishedAt = null; 
         }
 
