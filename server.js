@@ -3091,7 +3091,7 @@ adminRouter.get('/stats/overview', async (req, res) => {
 // server.js
 
 // ... dentro de adminRouter.get('/stats/overview', async (req, res) => { ... try { ...
-        console.log("ADMIN_STATS_LOG: Iterando sobre planos para contar investimentos ativos (tentativa 2)...");
+        console.log("ADMIN_STATS_LOG: Iterando sobre planos para contar investimentos ativos (tentativa 3 com $eq: null)..."); // Atualize o log se quiser
         for (const plan of plans) {
             console.log(`ADMIN_STATS_LOG: Contando para o plano ${plan.name}...`);
             const count = await User.countDocuments({
@@ -3099,7 +3099,7 @@ adminRouter.get('/stats/overview', async (req, res) => {
                     $elemMatch: {
                         planId: plan._id,
                         $or: [
-                            { expiresAt: null },
+                            { expiresAt: { $eq: null } }, // Usando $eq: null explicitamente
                             { expiresAt: { $gt: new Date() } }
                         ]
                     }
@@ -3108,7 +3108,7 @@ adminRouter.get('/stats/overview', async (req, res) => {
             activeInvestmentsByPlan[plan.name] = count;
             totalActiveInvestments += count;
         }
-        console.log("ADMIN_STATS_LOG: activeInvestmentsByPlan (tentativa 2) =", activeInvestmentsByPlan);
+        console.log("ADMIN_STATS_LOG: activeInvestmentsByPlan (tentativa 3 com $eq: null) =", activeInvestmentsByPlan);
 // ... resto da rota ...
 
         // Novas estatísticas de comissão
