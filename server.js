@@ -3058,48 +3058,60 @@ adminRouter.delete('/notifications/:notificationId', async (req, res) => { // In
 // ... (Rotas de Admin das seções anteriores da Parte 5) ...
 
 // 10.8. Estatísticas Gerais - ATUALIZADO
-adminRouter.get('/stats/overview', async (req, res) => {
-    try {
-        const totalUsers = await User.countDocuments();
-        const activeUsers = await User.countDocuments({ lastLoginAt: { $gte: new Date(new Date() - 30 * 24 * 60 * 60 * 1000) } }); // Últimos 30 dias
+// server.js
 
+// ...
+adminRouter.get('/stats/overview', async (req, res) => {
+    console.log("ADMIN_STATS_LOG: Rota /api/admin/stats/overview alcançada.");
+
+    try {
+        console.log("ADMIN_STATS_LOG: Tentando buscar totalUsers...");
+        const totalUsers = await User.countDocuments();
+        console.log("ADMIN_STATS_LOG: totalUsers =", totalUsers);
+
+        console.log("ADMIN_STATS_LOG: Tentando buscar activeUsers...");
+        const activeUsers = await User.countDocuments({ lastLoginAt: { $gte: new Date(new Date() - 30 * 24 * 60 * 60 * 1000) } });
+        console.log("ADMIN_STATS_LOG: activeUsers =", activeUsers);
+
+        console.log("ADMIN_STATS_LOG: Tentando agregar depósitos...");
         const depositAggregation = await Deposit.aggregate([
             { $match: { status: 'Confirmado' } },
             { $group: { _id: null, total: { $sum: '$amount' }, count: { $sum: 1 } } }
         ]);
         const totalDeposited = depositAggregation.length > 0 ? depositAggregation[0].total : 0;
         const totalDepositsConfirmed = depositAggregation.length > 0 ? depositAggregation[0].count : 0;
+        console.log("ADMIN_STATS_LOG: totalDeposited =", totalDeposited);
 
+        console.log("ADMIN_STATS_LOG: Tentando agregar saques...");
         const withdrawalAggregation = await Withdrawal.aggregate([
             { $match: { status: 'Processado' } },
             { $group: { _id: null, total: { $sum: '$amount' }, count: { $sum: 1 } } }
         ]);
         const totalWithdrawn = withdrawalAggregation.length > 0 ? withdrawalAggregation[0].total : 0;
         const totalWithdrawalsProcessed = withdrawalAggregation.length > 0 ? withdrawalAggregation[0].count : 0;
+        console.log("ADMIN_STATS_LOG: totalWithdrawn =", totalWithdrawn);
 
+        console.log("ADMIN_STATS_LOG: Tentando contar depósitos pendentes...");
         const pendingDepositsCount = await Deposit.countDocuments({ status: 'Pendente' });
-        const pendingWithdrawalsCount = await Withdrawal.countDocuments({ status: 'Pendente' });
+        console.log("ADMIN_STATS_LOG: pendingDepositsCount =", pendingDepositsCount);
 
+        console.log("ADMIN_STATS_LOG: Tentando contar saques pendentes...");
+        const pendingWithdrawalsCount = await Withdrawal.countDocuments({ status: 'Pendente' });
+        console.log("ADMIN_STATS_LOG: pendingWithdrawalsCount =", pendingWithdrawalsCount);
+
+        console.log("ADMIN_STATS_LOG: Tentando buscar planos ativos...");
         const plans = await Plan.find({ isActive: true }).select('name _id');
         const activeInvestmentsByPlan = {};
         let totalActiveInvestments = 0;
-        for (const plan of plans) {
-            const count = await User.countDocuments({ 'activeInvestments.planId': plan._id, 'activeInvestments.expiresAt': { $or: [null, { $gt: new Date() }] } });
-            activeInvestmentsByPlan[plan.name] = count;
-            totalActiveInvestments += count;
-        }
-// server.js
-
-// ... dentro de adminRouter.get('/stats/overview', async (req, res) => { ... try { ...
-        console.log("ADMIN_STATS_LOG: Iterando sobre planos para contar investimentos ativos (tentativa 3 com $eq: null)..."); // Atualize o log se quiser
+        console.log("ADMIN_STATS_LOG: Iterando sobre planos para contar investimentos ativos (usando $elemMatch com $eq: null)...");
         for (const plan of plans) {
             console.log(`ADMIN_STATS_LOG: Contando para o plano ${plan.name}...`);
             const count = await User.countDocuments({
-                activeInvestments: { // Aplicar $elemMatch ao array activeInvestments
+                activeInvestments: {
                     $elemMatch: {
                         planId: plan._id,
                         $or: [
-                            { expiresAt: { $eq: null } }, // Usando $eq: null explicitamente
+                            { expiresAt: { $eq: null } }, // Tentativa com $eq: null
                             { expiresAt: { $gt: new Date() } }
                         ]
                     }
@@ -3108,23 +3120,26 @@ adminRouter.get('/stats/overview', async (req, res) => {
             activeInvestmentsByPlan[plan.name] = count;
             totalActiveInvestments += count;
         }
-        console.log("ADMIN_STATS_LOG: activeInvestmentsByPlan (tentativa 3 com $eq: null) =", activeInvestmentsByPlan);
-// ... resto da rota ...
+        console.log("ADMIN_STATS_LOG: activeInvestmentsByPlan =", activeInvestmentsByPlan);
 
-        // Novas estatísticas de comissão
+        console.log("ADMIN_STATS_LOG: Tentando agregar comissões de registro...");
         const totalCommissionOnRegistration = await ReferralHistory.aggregate([
             { $match: { status: 'Comissão Paga', commissionEarnedOnRegistration: { $gt: 0 } } },
             { $group: { _id: null, total: { $sum: '$commissionEarnedOnRegistration' } } }
         ]);
         const totalRegCommissionPaid = totalCommissionOnRegistration.length > 0 ? totalCommissionOnRegistration[0].total : 0;
+        console.log("ADMIN_STATS_LOG: totalRegCommissionPaid =", totalRegCommissionPaid);
 
+        console.log("ADMIN_STATS_LOG: Tentando agregar comissões de claims...");
         const totalCommissionOnClaims = await DailyClaimCommissionLog.aggregate([
             { $group: { _id: null, total: { $sum: '$commissionEarned' } } }
         ]);
         const totalClaimCommissionPaid = totalCommissionOnClaims.length > 0 ? totalCommissionOnClaims[0].total : 0;
+        console.log("ADMIN_STATS_LOG: totalClaimCommissionPaid =", totalClaimCommissionPaid);
         
         const totalOverallCommissionPaid = totalRegCommissionPaid + totalClaimCommissionPaid;
 
+        console.log("ADMIN_STATS_LOG: Todas as estatísticas buscadas com sucesso. Enviando resposta.");
         res.json({
             totalUsers,
             activeUsers,
@@ -3143,11 +3158,17 @@ adminRouter.get('/stats/overview', async (req, res) => {
             }
         });
     } catch (error) {
-        console.error("Admin - Erro ao buscar estatísticas:", error);
+        // Logs detalhados do erro no backend
+        console.error("ADMIN_STATS_LOG: ERRO DETALHADO NO BLOCO CATCH da rota /api/admin/stats/overview");
+        console.error("ADMIN_STATS_LOG: Nome do Erro:", error.name);
+        console.error("ADMIN_STATS_LOG: Mensagem do Erro:", error.message);
+        console.error("ADMIN_STATS_LOG: Stack Trace do Erro:", error.stack);
+        console.error("ADMIN_STATS_LOG: Objeto de Erro Completo:", JSON.stringify(error, Object.getOwnPropertyNames(error), 2));
+
         res.status(500).json({ message: "Erro ao buscar estatísticas." });
     }
 });
-
+// ...
 // 10.9. Gerenciamento de Claims (Admin View) - Inalterado da versão original, revisado para consistência
 adminRouter.get('/claims-history', async (req, res) => { // Renomeado para evitar conflito com user claims
     const { userId, planId, currency, page = 1, limit = 20, sort = 'claimedAt', order = 'desc' } = req.query;
