@@ -3091,20 +3091,24 @@ adminRouter.get('/stats/overview', async (req, res) => {
 // server.js
 
 // ... dentro de adminRouter.get('/stats/overview', async (req, res) => { ... try { ...
-        console.log("ADMIN_STATS_LOG: Iterando sobre planos para contar investimentos ativos...");
+        console.log("ADMIN_STATS_LOG: Iterando sobre planos para contar investimentos ativos (tentativa 2)...");
         for (const plan of plans) {
             console.log(`ADMIN_STATS_LOG: Contando para o plano ${plan.name}...`);
             const count = await User.countDocuments({
-                'activeInvestments.planId': plan._id,
-                $or: [ // Mova o $or para um nível que possa abranger diferentes condições para o campo
-                    { 'activeInvestments.expiresAt': null },
-                    { 'activeInvestments.expiresAt': { $gt: new Date() } }
-                ]
+                activeInvestments: { // Aplicar $elemMatch ao array activeInvestments
+                    $elemMatch: {
+                        planId: plan._id,
+                        $or: [
+                            { expiresAt: null },
+                            { expiresAt: { $gt: new Date() } }
+                        ]
+                    }
+                }
             });
             activeInvestmentsByPlan[plan.name] = count;
             totalActiveInvestments += count;
         }
-        console.log("ADMIN_STATS_LOG: activeInvestmentsByPlan =", activeInvestmentsByPlan);
+        console.log("ADMIN_STATS_LOG: activeInvestmentsByPlan (tentativa 2) =", activeInvestmentsByPlan);
 // ... resto da rota ...
 
         // Novas estatísticas de comissão
