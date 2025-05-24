@@ -146,7 +146,7 @@ async function initializeDefaultSettings() {
             { key: 'defaultPlanDurationType', value: 'lifelong', description: "Tipo padrão para a duração do plano ('days', 'weeks', 'lifelong')." },
 
             { key: 'siteName', value: 'GoldMT Invest', description: 'Nome do site exibido em títulos e outras áreas públicas.' },
-            { key: 'minWithdrawalAmount', value: 50, description: 'Valor mínimo para solicitação de saque em MT.' },
+            { key: 'minWithdrawalAmount', value: 150, description: 'Valor mínimo para solicitação de saque em MT.' },
             { key: 'maxWithdrawalAmount', value: 50000, description: 'Valor máximo para solicitação de saque em MT.' },
             { key: 'withdrawalFeeInfo', value: 'Taxa de manuseio varia de 2% a 15% dependendo do valor e método.', description: 'Informação sobre taxas de saque exibida ao usuário na página de saque.' },
             { key: 'withdrawalFeePercentageBase', value: 0.02, description: 'Taxa base de saque (ex: 0.02 para 2%)' },
